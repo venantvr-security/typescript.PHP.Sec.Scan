@@ -248,3 +248,7 @@ Et partager la sortie complète des erreurs de test ? Cela m’aidera à identif
     - Les tests peuvent échouer si `tree-sitter-php@0.22.8` parse incorrectement le code PHP.
     - Des erreurs dans `taintTracker.test.ts` (ex. `get_tainted` mal configuré) pourraient causer des assertions échouées.
     - Un problème d’environnement (ex. compilateur C/C++ manquant) pourrait affecter l’exécution de `tree-sitter`.
+
+## Stack
+
+[![Stack](https://skillicons.dev/icons?i=ts,linux,vscode,nodejs,git&theme=dark)](https://skillicons.dev)
