@@ -251,4 +251,4 @@ Et partager la sortie complète des erreurs de test ? Cela m’aidera à identif
 
 ## Stack
 
-[![Stack](https://skillicons.dev/icons?i=ts,linux,vscode,nodejs,git&theme=dark)](https://skillicons.dev)
+[![Stack](https://skillicons.dev/icons?i=ts,linux,vscode,nodejs&theme=dark)](https://skillicons.dev)
