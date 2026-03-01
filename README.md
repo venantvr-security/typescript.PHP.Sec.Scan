@@ -200,7 +200,7 @@ MIT
 ### Instructions pour utiliser le README
 
 1. **Ajouter le README au projet** :
-    - Crée ou remplace le fichier `README.md` dans `/home/rvv/WebstormProjects/TypeScript.PHP.Sec.Scan/` avec le contenu ci-dessus.
+    - Crée ou remplace le fichier `README.md` dans `/home/rvv/WebstormProjects/typescript.PHP.Sec.Scan/` avec le contenu ci-dessus.
     - Enregistre-le avec l’encodage UTF-8.
 
 2. **Vérifier le rendu** :
@@ -211,7 +211,7 @@ MIT
     - Ajoute ou remplace `README.md` dans ton dossier de projet.
     - Crée un nouveau ZIP :
       ```bash
-      cd ~/WebstormProjects/TypeScript.PHP.Sec.Scan
+      cd ~/WebstormProjects/typescript.PHP.Sec.Scan
       zip -r php-security-scanner.zip .
       ```
     - Vérifie que le ZIP inclut tous les fichiers, y compris le nouveau `README.md` :
