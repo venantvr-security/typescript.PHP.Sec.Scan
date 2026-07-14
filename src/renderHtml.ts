@@ -69,7 +69,9 @@ export function renderHolonGraphToHtml(graph: HolonGraph): string {
     const legend = renderLegend(graph);
     const heading = graph.metadata.exportTool.includes('taint')
         ? 'Graphe de teinte (source → sink) — Holon Architecture Modeler'
-        : 'Graphe de dépendances — Holon Architecture Modeler';
+        : graph.metadata.exportTool.includes('unified')
+            ? 'Graphe unifié (dépendances + teinte) — Holon Architecture Modeler'
+            : 'Graphe de dépendances — Holon Architecture Modeler';
 
     return `<!doctype html>
 <html lang="fr">

@@ -24,11 +24,14 @@ const ARCHIMATE: Record<TaintKind, string> = {
     usage: 'Fonction'
 };
 
+const GLOBAL = '<global>';
+
 interface TaintNode {
     id: string;
     kind: TaintKind;
     name: string;
     file: string;
+    scope: string;
 }
 
 interface TaintEdge {
@@ -48,8 +51,6 @@ export function exportTaintGraph(flow: TaintFlowEntry[], exportedAt: string): Ho
     const nodes = new Map<string, TaintNode>();
     const edges: TaintEdge[] = [];
     const seenEdges = new Set<string>();
-    // Dernier identifiant de nœud connu pour un nom de variable, par fichier.
-    const varNode = new Map<string, string>();
 
     const ensure = (node: TaintNode): string => {
         const existing = nodes.get(node.id);
@@ -73,62 +74,63 @@ export function exportTaintGraph(flow: TaintFlowEntry[], exportedAt: string): Ho
         edges.push({source, target, relationType, name});
     };
 
-    const varId = (file: string, name: string) => `var:${file}:${name}`;
+    // Les variables sont identifiées par (fichier, portée, nom) : deux fonctions
+    // peuvent avoir un paramètre `$x` distinct.
+    const varId = (file: string, scope: string, name: string) => `var:${file}:${scope}:${name}`;
+    const scopeOf = (entry: TaintFlowEntry) => entry.scope ?? GLOBAL;
 
     for (const entry of flow) {
+        const scope = scopeOf(entry);
         if (entry.action === 'assignment') {
             const kind: TaintKind = entry.origin === 'sanitized' ? 'sanitized' : 'tainted';
-            const id = ensure({id: varId(entry.file, entry.variable), kind, name: entry.variable, file: entry.file});
+            const id = ensure({id: varId(entry.file, scope, entry.variable), kind, name: entry.variable, file: entry.file, scope});
 
             if (entry.origin === 'source') {
-                const srcId = ensure({
-                    id: `src:${entry.file}:${entry.source}`,
-                    kind: 'source',
-                    name: entry.source,
-                    file: entry.file
-                });
+                const srcId = ensure({id: `src:${entry.file}:${scope}:${entry.source}`, kind: 'source', name: entry.source, file: entry.file, scope});
                 addEdge(srcId, id, 'Flux', '');
             } else if (entry.origin === 'propagation' || entry.origin === 'sanitized') {
                 const relation = entry.origin === 'sanitized' ? 'Désinfection' : 'Flux';
-                for (const predId of predecessorsIn(entry.source, entry.file, nodes, varNode, entry.variable)) {
+                for (const predId of predecessorsIn(entry.source, entry.file, scope, nodes, entry.variable)) {
                     addEdge(predId, id, relation, '');
                 }
             }
-
-            varNode.set(`${entry.file}:${entry.variable}`, id);
         } else if (entry.action === 'function_parameter') {
-            const fromId = ensure({id: varId(entry.file, entry.variable), kind: 'tainted', name: entry.variable, file: entry.file});
+            const fromId = ensure({id: varId(entry.file, scope, entry.variable), kind: 'tainted', name: entry.variable, file: entry.file, scope});
             if (entry.isVulnerable) {
-                const sinkId = ensure({id: `sink:${entry.file}:${entry.details}`, kind: 'sink', name: entry.details, file: entry.file});
+                const sinkId = ensure({id: `sink:${entry.file}:${entry.details}`, kind: 'sink', name: entry.details, file: entry.file, scope});
                 addEdge(fromId, sinkId, 'Vulnérabilité', entry.vulnType ?? '');
             } else {
-                const fnId = ensure({id: `fn:${entry.file}:${entry.details}`, kind: 'usage', name: entry.details, file: entry.file});
+                const fnId = ensure({id: `fn:${entry.file}:${entry.details}`, kind: 'usage', name: entry.details, file: entry.file, scope});
                 addEdge(fromId, fnId, 'Usage', entry.details);
             }
+        } else if (entry.action === 'parameter_binding') {
+            // Argument de l'appelant → paramètre de l'appelé (arête inter-procédurale).
+            const targetScope = entry.targetScope ?? GLOBAL;
+            const fromId = ensure({id: varId(entry.file, scope, entry.variable), kind: 'tainted', name: entry.variable, file: entry.file, scope});
+            const toId = ensure({id: varId(entry.file, targetScope, entry.details), kind: 'tainted', name: entry.details, file: entry.file, scope: targetScope});
+            addEdge(fromId, toId, 'Flux', targetScope);
         }
     }
 
     return assemble(Array.from(nodes.values()), edges, exportedAt);
 }
 
-/** Nœuds de variables existants (même fichier) dont le nom apparaît comme jeton dans `source`. */
+/** Nœuds de variables existants (même fichier + même portée) dont le nom apparaît comme jeton dans `source`. */
 function predecessorsIn(
     source: string,
     file: string,
+    scope: string,
     nodes: Map<string, TaintNode>,
-    varNode: Map<string, string>,
     exclude: string
 ): string[] {
     const preds: string[] = [];
     for (const node of nodes.values()) {
-        if (node.file !== file || node.name === exclude) {
+        if (node.file !== file || node.scope !== scope || node.name === exclude) {
             continue;
         }
-        if (node.kind !== 'tainted' && node.kind !== 'sanitized' && node.kind !== 'source') {
+        // Une source ne se propage que via son affectation directe, pas par correspondance de texte.
+        if (node.kind !== 'tainted' && node.kind !== 'sanitized') {
             continue;
-        }
-        if (node.kind === 'source') {
-            continue; // les sources ne se propagent que via leur affectation directe
         }
         if (new RegExp(`${escapeRegExp(node.name)}(?![A-Za-z0-9_])`).test(source)) {
             preds.push(node.id);
@@ -168,7 +170,7 @@ function assemble(taintNodes: TaintNode[], taintEdges: TaintEdge[], exportedAt: 
             data: {
                 name: node.name,
                 archimateType: ARCHIMATE[node.kind],
-                documentation: `${ARCHIMATE[node.kind]} — ${node.file}`
+                documentation: `${ARCHIMATE[node.kind]} — ${node.file}${node.scope !== GLOBAL ? ` (dans ${node.scope})` : ''}`
             }
         };
     });
