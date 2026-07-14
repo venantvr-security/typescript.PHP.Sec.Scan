@@ -16,7 +16,7 @@ const parser = new Parser();
 parser.setLanguage(treeSitterPhp.php);
 
 describe('TaintAnalyzer', () => {
-    /* it('devrait détecter une source non désinfectée', () => {
+    it('devrait détecter une source non désinfectée', () => {
         const code = `
             <?php
             $id = $_GET['id'];
@@ -77,7 +77,7 @@ describe('TaintAnalyzer', () => {
         expect(taintFlow).to.include("Variable '$tmp' assigned from source '$_GET['id']'");
         expect(taintFlow).to.include("Variable '$id' assigned from source '$tmp'")
         expect(taintFlow).to.include("Variable '$id' passed as parameter to function 'some_function'");
-    }); */
+    });
 
     it('devrait détecter une variable tainted passée à une fonction après 2 affectations et un appel de méthode', () => {
         const code = `
@@ -103,5 +103,45 @@ describe('TaintAnalyzer', () => {
         expect(taintFlow).to.include("Variable '$tmp' assigned from source '$_GET['id']'");
         expect(taintFlow).to.include("Variable '$id' assigned from source '$tmp'")
         expect(taintFlow).to.include("Variable '$id' passed as parameter to function 'some_function'");
+    });
+
+    function analyze(code: string) {
+        const tree = parser.parse(code);
+        const events = new SyntaxTreeParser(Buffer.from(code, 'utf-8'), tree, 'test.php').parse();
+        return new TaintAnalyzer(rules, 'test.php').analyze(events);
+    }
+
+    it('signale une injection SQL quand une donnée teintée atteint un sink SQL', () => {
+        const vulns = analyze(`<?php $id = $_GET['id']; mysqli_query($id);`);
+        const sqli = vulns.find(v => v.type === 'sql_injection');
+        expect(sqli, 'vulnérabilité SQL').to.exist;
+        expect(sqli!.severity).to.equal('error');
+        expect(sqli!.sink).to.equal('mysqli_query');
+    });
+
+    it('signale un XSS quand une donnée teintée atteint un echo', () => {
+        const vulns = analyze(`<?php $name = $_GET['name']; echo $name;`);
+        const xss = vulns.find(v => v.type === 'xss');
+        expect(xss, 'vulnérabilité XSS').to.exist;
+        expect(xss!.severity).to.equal('error');
+        expect(xss!.sink).to.equal('echo');
+    });
+
+    it('signale une RCE quand une donnée teintée atteint eval', () => {
+        const vulns = analyze(`<?php $c = $_GET['c']; eval($c);`);
+        expect(vulns.some(v => v.type === 'rce' && v.severity === 'error' && v.sink === 'eval')).to.be.true;
+    });
+
+    it('ne signale aucune vulnérabilité de sink après désinfection', () => {
+        const vulns = analyze(`<?php $id = $_GET['id']; $safe = htmlspecialchars($id); echo $safe;`);
+        expect(vulns.some(v => v.severity === 'error')).to.be.false;
+        // Seul l'avertissement de source subsiste.
+        expect(vulns).to.have.lengthOf(1);
+        expect(vulns[0].type).to.equal('unsanitized_source');
+    });
+
+    it('ne considère pas un appel de fonction anodin comme un sink', () => {
+        const vulns = analyze(`<?php $id = $_GET['id']; some_function($id);`);
+        expect(vulns.some(v => v.severity === 'error')).to.be.false;
     });
 });

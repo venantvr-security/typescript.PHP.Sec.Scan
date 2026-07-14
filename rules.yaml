@@ -1,7 +1,48 @@
-# rules.yaml
+# Règles d'analyse de teinte (taint tracking).
+#
+# `sources`     : entrées contrôlées par l'utilisateur (superglobales PHP).
+# `sinks`       : fonctions/constructions où une donnée teintée devient une
+#                 vulnérabilité, avec leur catégorie (`type`).
+# `sanitizers`  : fonctions/casts qui rendent une donnée sûre.
+#
+# `sinks` et `sanitizers` sont facultatifs : en leur absence, les valeurs par
+# défaut de `src/defaultRules.ts` sont appliquées.
+
 sources:
   - $_GET
   - $_POST
   - $_COOKIE
   - $_REQUEST
   - $_FILES
+
+sinks:
+  # Injection SQL
+  - {name: mysql_query, type: sql_injection}
+  - {name: mysqli_query, type: sql_injection}
+  - {name: pg_query, type: sql_injection}
+  # XSS (sorties)
+  - {name: echo, type: xss}
+  - {name: print, type: xss}
+  - {name: printf, type: xss}
+  # Exécution de code / commandes (RCE)
+  - {name: eval, type: rce}
+  - {name: exec, type: rce}
+  - {name: system, type: rce}
+  - {name: shell_exec, type: rce}
+  - {name: passthru, type: rce}
+  # Inclusion de fichiers
+  - {name: include, type: file_inclusion}
+  - {name: require, type: file_inclusion}
+  - {name: include_once, type: file_inclusion}
+  - {name: require_once, type: file_inclusion}
+
+sanitizers:
+  - htmlspecialchars
+  - htmlentities
+  - strip_tags
+  - mysqli_real_escape_string
+  - addslashes
+  - intval
+  - escapeshellarg
+  - filter_var
+  - "(int)"

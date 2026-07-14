@@ -23,6 +23,63 @@ L'extension utilise `tree-sitter` et `tree-sitter-php` pour parser le code PHP e
 - Actions de code pour des corrections automatiques (ex. désinfection XSS, comparaisons strictes).
 - Configuration personnalisable via `settings.json` et `rules.yaml`.
 - Support pour l'analyse automatique à la sauvegarde des fichiers PHP.
+- **Export d'un graphe de dépendances** (basé sur l'AST) au format Holon Architecture Modeler.
+
+## Graphe de dépendances (export Holon)
+
+À partir de l'AST `tree-sitter`, le scanner construit un graphe de dépendances
+à l'échelle du projet et l'exporte au format JSON de **Holon Architecture Modeler**.
+
+- **Nœuds** : fichiers (conteneurs), classes/interfaces/traits (conteneurs),
+  fonctions et méthodes. Les méthodes sont imbriquées dans leur classe, et les
+  classes/fonctions dans leur fichier.
+- **Arêtes** : appels de fonction, appels de méthode (`$this->m()`), appels
+  statiques (`Foo::bar()`) → `Triggering` ; instanciations (`new Foo()`) →
+  `Association`. La résolution des symboles est effectuée **entre fichiers**.
+- **Symboles externes** : toute référence non définie dans les sources
+  analysées (fonctions natives PHP, code tiers) devient un nœud `external`,
+  de sorte qu'aucune arête ne pointe dans le vide.
+- **Géométrie** : une mise en page hiérarchique déterministe assigne
+  `x/y/w/h` à chaque nœud pour un rendu immédiat dans Holon.
+
+Chaque nœud reçoit un type ArchiMate (`ApplicationComponent`,
+`ApplicationFunction`, `ApplicationService`) et un style, conformément au
+schéma attendu par Holon (`version`, `nodes`, `edges`, `metadata`).
+
+### Utilisation en ligne de commande
+
+```bash
+# Analyser un dossier (récursif, ignore vendor/node_modules) et écrire le JSON
+npm run export-graph -- ./chemin/vers/projet-php --out graphe.json
+
+# Générer aussi un aperçu HTML/SVG autonome (ouvrable dans un navigateur)
+npm run export-graph -- ./chemin/vers/projet-php --out graphe.json --html apercu.html
+
+# Ou écrire sur stdout (JSON pur, pipeable)
+node out/src/exportGraph.js ./src/fichier.php
+```
+
+L'aperçu HTML (`--html`) est un fichier **autonome** (SVG inline, aucune
+ressource externe) : conteneurs imbriqués, couleurs par type ArchiMate,
+arêtes fléchées et étiquetées, légende. Le survol d'un nœud affiche sa
+documentation.
+
+## Analyse de teinte : sources, sinks et désinfectants
+
+La détection de vulnérabilités suit le trajet d'une donnée depuis une **source**
+jusqu'à un **sink** :
+
+- **Source** → **sink** sans désinfection ⇒ vulnérabilité (`severity: error`),
+  typée selon le sink : `sql_injection`, `xss`, `rce`, `file_inclusion`.
+- Une donnée qui passe par un **désinfectant** (`htmlspecialchars`, `intval`,
+  `mysqli_real_escape_string`, cast `(int)`, …) redevient sûre.
+- Une source affectée à une variable produit aussi un avertissement
+  `unsanitized_source` (`severity: warning`).
+
+Sinks reconnus par défaut : appels de fonction (`mysqli_query`, `eval`,
+`system`, …) **et** constructions du langage (`echo`, `print`, `include`,
+`require`). Les listes sont configurables dans `rules.yaml` (`sinks`,
+`sanitizers`) ; à défaut, celles de `src/defaultRules.ts` s'appliquent.
 
 ## Prérequis
 
@@ -137,14 +194,17 @@ Ou via VS Code :
 
 ### Structure du projet
 
-- `src/` : Code source de l'extension.
-    - `extension.ts` : Point d'entrée de l'extension VS Code.
-    - `taintTracker.ts` : Logique de suivi des taints.
-    - `phpParser.ts` : Analyse syntaxique avec `tree-sitter`.
-    - `config.ts` : Gestion de la configuration et des règles.
-    - `types.ts` : Interfaces TypeScript (ex. `Vulnerability`, `Rules`).
+- `src/` : Code source.
+    - `syntaxTreeParser.ts` : Extraction d'événements (affectations, appels, sinks) depuis l'AST `tree-sitter`.
+    - `taintTracker.ts` : Suivi de teinte (sources, propagation, désinfection, sinks).
+    - `defaultRules.ts` : Sinks et désinfectants par défaut.
+    - `dependencyGraph.ts` : Construction du graphe de dépendances à partir de l'AST (résolution des symboles inter-fichiers).
+    - `holonExporter.ts` : Mise en page et export au format Holon Architecture Modeler.
+    - `renderHtml.ts` : Rendu d'un aperçu HTML/SVG autonome du graphe.
+    - `exportGraph.ts` : Point d'entrée CLI (`php-dep-graph`).
+    - `types.ts` : Interfaces TypeScript (ex. `Vulnerability`, `Rules`, `HolonGraph`).
     - `types/tree-sitter-php.d.ts` : Déclaration personnalisée pour `tree-sitter-php`.
-- `tests/` : Tests unitaires (ex. `taintTracker.test.ts`).
+- `tests/` : Tests unitaires (`taintTracker.test.ts`, `dependencyGraph.test.ts`, `renderHtml.test.ts`).
 - `rules.yaml` : Règles par défaut pour l'analyse des vulnérabilités.
 - `tsconfig.json` : Configuration TypeScript.
 - `package.json` : Dépendances et scripts npm.
