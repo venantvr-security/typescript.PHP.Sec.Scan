@@ -109,7 +109,13 @@ export class TaintAnalyzer {
 
     private isSource(text: string): boolean {
         console.log(`Checking if source: ${text}`);
-        return text.startsWith('$_GET') || this.rules.sources.includes(text);
+        // Un accès à une superglobale peut être direct (`$_POST`) ou indexé
+        // (`$_POST['id']`, `$_GET["x"]['y']`). On considère la source détectée
+        // dès que le texte correspond exactement à une source configurée ou
+        // commence par cette source suivie d'un accès par index.
+        return this.rules.sources.some(
+            source => text === source || text.startsWith(`${source}[`)
+        );
     }
 
     private isVulnerability(): boolean { // à déplacer...
