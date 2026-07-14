@@ -52,9 +52,34 @@ schéma attendu par Holon (`version`, `nodes`, `edges`, `metadata`).
 # Analyser un dossier (récursif, ignore vendor/node_modules) et écrire le JSON
 npm run export-graph -- ./chemin/vers/projet-php --out graphe.json
 
+# Générer aussi un aperçu HTML/SVG autonome (ouvrable dans un navigateur)
+npm run export-graph -- ./chemin/vers/projet-php --out graphe.json --html apercu.html
+
 # Ou écrire sur stdout (JSON pur, pipeable)
 node out/src/exportGraph.js ./src/fichier.php
 ```
+
+L'aperçu HTML (`--html`) est un fichier **autonome** (SVG inline, aucune
+ressource externe) : conteneurs imbriqués, couleurs par type ArchiMate,
+arêtes fléchées et étiquetées, légende. Le survol d'un nœud affiche sa
+documentation.
+
+## Analyse de teinte : sources, sinks et désinfectants
+
+La détection de vulnérabilités suit le trajet d'une donnée depuis une **source**
+jusqu'à un **sink** :
+
+- **Source** → **sink** sans désinfection ⇒ vulnérabilité (`severity: error`),
+  typée selon le sink : `sql_injection`, `xss`, `rce`, `file_inclusion`.
+- Une donnée qui passe par un **désinfectant** (`htmlspecialchars`, `intval`,
+  `mysqli_real_escape_string`, cast `(int)`, …) redevient sûre.
+- Une source affectée à une variable produit aussi un avertissement
+  `unsanitized_source` (`severity: warning`).
+
+Sinks reconnus par défaut : appels de fonction (`mysqli_query`, `eval`,
+`system`, …) **et** constructions du langage (`echo`, `print`, `include`,
+`require`). Les listes sont configurables dans `rules.yaml` (`sinks`,
+`sanitizers`) ; à défaut, celles de `src/defaultRules.ts` s'appliquent.
 
 ## Prérequis
 
@@ -170,14 +195,16 @@ Ou via VS Code :
 ### Structure du projet
 
 - `src/` : Code source.
-    - `syntaxTreeParser.ts` : Extraction d'événements (affectations, appels) depuis l'AST `tree-sitter`.
-    - `taintTracker.ts` : Logique de suivi des taints.
+    - `syntaxTreeParser.ts` : Extraction d'événements (affectations, appels, sinks) depuis l'AST `tree-sitter`.
+    - `taintTracker.ts` : Suivi de teinte (sources, propagation, désinfection, sinks).
+    - `defaultRules.ts` : Sinks et désinfectants par défaut.
     - `dependencyGraph.ts` : Construction du graphe de dépendances à partir de l'AST (résolution des symboles inter-fichiers).
     - `holonExporter.ts` : Mise en page et export au format Holon Architecture Modeler.
+    - `renderHtml.ts` : Rendu d'un aperçu HTML/SVG autonome du graphe.
     - `exportGraph.ts` : Point d'entrée CLI (`php-dep-graph`).
     - `types.ts` : Interfaces TypeScript (ex. `Vulnerability`, `Rules`, `HolonGraph`).
     - `types/tree-sitter-php.d.ts` : Déclaration personnalisée pour `tree-sitter-php`.
-- `tests/` : Tests unitaires (`taintTracker.test.ts`, `dependencyGraph.test.ts`).
+- `tests/` : Tests unitaires (`taintTracker.test.ts`, `dependencyGraph.test.ts`, `renderHtml.test.ts`).
 - `rules.yaml` : Règles par défaut pour l'analyse des vulnérabilités.
 - `tsconfig.json` : Configuration TypeScript.
 - `package.json` : Dépendances et scripts npm.

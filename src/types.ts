@@ -8,8 +8,19 @@ export interface Vulnerability {
     severity: 'error' | 'warning';
 }
 
+export interface SinkRule {
+    /** Nom de la fonction ou construction dangereuse (ex. `mysqli_query`, `echo`). */
+    name: string;
+    /** Catégorie de vulnérabilité associée (ex. `sql_injection`, `xss`, `rce`). */
+    type: string;
+}
+
 export interface Rules {
     sources: string[];
+    /** Puits (sinks) où une donnée teintée devient une vulnérabilité. Défauts appliqués si omis. */
+    sinks?: SinkRule[];
+    /** Fonctions/casts qui désinfectent une donnée. Défauts appliqués si omis. */
+    sanitizers?: string[];
 }
 
 export interface CodeEvent {

@@ -6,19 +6,24 @@ import treeSitterPhp = require('tree-sitter-php');
 
 import {DependencyGraphBuilder} from './dependencyGraph';
 import {exportDependencyGraph} from './holonExporter';
+import {renderHolonGraphToHtml} from './renderHtml';
 
 interface CliOptions {
     inputs: string[];
     out: string | null;
+    html: string | null;
 }
 
 function parseArgs(argv: string[]): CliOptions {
     const inputs: string[] = [];
     let out: string | null = null;
+    let html: string | null = null;
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         if (arg === '--out' || arg === '-o') {
             out = argv[++i] ?? null;
+        } else if (arg === '--html') {
+            html = argv[++i] ?? null;
         } else if (arg === '--help' || arg === '-h') {
             printUsage();
             process.exit(0);
@@ -26,14 +31,15 @@ function parseArgs(argv: string[]): CliOptions {
             inputs.push(arg);
         }
     }
-    return {inputs, out};
+    return {inputs, out, html};
 }
 
 function printUsage(): void {
-    console.error(`Usage: export-graph <file-or-dir> [more paths...] [--out graph.json]
+    console.error(`Usage: export-graph <file-or-dir> [more paths...] [--out graph.json] [--html preview.html]
 
 Statically analyses PHP sources and exports an AST dependency graph in the
-Holon Architecture Modeler format. Without --out, the JSON is written to stdout.`);
+Holon Architecture Modeler format. Without --out, the JSON is written to stdout.
+Use --html to also write a self-contained SVG preview of the graph.`);
 }
 
 function collectPhpFiles(target: string, acc: string[]): void {
@@ -85,10 +91,15 @@ function main(): void {
     const graph = exportDependencyGraph(model, new Date().toISOString());
     const json = JSON.stringify(graph, null, 2);
 
+    if (options.html) {
+        fs.writeFileSync(options.html, renderHolonGraphToHtml(graph), 'utf-8');
+        console.error(`Wrote SVG preview to ${options.html}`);
+    }
+
     if (options.out) {
         fs.writeFileSync(options.out, json, 'utf-8');
         console.error(`Wrote ${graph.metadata.nodeCount} nodes and ${graph.metadata.edgeCount} edges to ${options.out}`);
-    } else {
+    } else if (!options.html) {
         process.stdout.write(json + '\n');
     }
 }
