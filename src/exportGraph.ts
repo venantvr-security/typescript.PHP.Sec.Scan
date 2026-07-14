@@ -6,24 +6,39 @@ import treeSitterPhp = require('tree-sitter-php');
 
 import {DependencyGraphBuilder} from './dependencyGraph';
 import {exportDependencyGraph} from './holonExporter';
+import {SyntaxTreeParser} from './syntaxTreeParser';
+import {InterproceduralAnalyzer} from './interproceduralTaint';
+import {exportTaintGraph} from './taintGraph';
+import {exportUnifiedGraph} from './unifiedGraph';
 import {renderHolonGraphToHtml} from './renderHtml';
+import {HolonGraph, ModuleModel, Rules} from './types';
+
+const DEFAULT_SOURCES = ['$_GET', '$_POST', '$_COOKIE', '$_REQUEST', '$_FILES'];
+
+type GraphKind = 'dependency' | 'taint' | 'unified';
 
 interface CliOptions {
     inputs: string[];
     out: string | null;
     html: string | null;
+    kind: GraphKind;
 }
 
 function parseArgs(argv: string[]): CliOptions {
     const inputs: string[] = [];
     let out: string | null = null;
     let html: string | null = null;
+    let kind: GraphKind = 'dependency';
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         if (arg === '--out' || arg === '-o') {
             out = argv[++i] ?? null;
         } else if (arg === '--html') {
             html = argv[++i] ?? null;
+        } else if (arg === '--taint') {
+            kind = 'taint';
+        } else if (arg === '--unified') {
+            kind = 'unified';
         } else if (arg === '--help' || arg === '-h') {
             printUsage();
             process.exit(0);
@@ -31,15 +46,22 @@ function parseArgs(argv: string[]): CliOptions {
             inputs.push(arg);
         }
     }
-    return {inputs, out, html};
+    return {inputs, out, html, kind};
 }
 
 function printUsage(): void {
-    console.error(`Usage: export-graph <file-or-dir> [more paths...] [--out graph.json] [--html preview.html]
+    console.error(`Usage: export-graph <file-or-dir> [more paths...] [options]
 
-Statically analyses PHP sources and exports an AST dependency graph in the
-Holon Architecture Modeler format. Without --out, the JSON is written to stdout.
-Use --html to also write a self-contained SVG preview of the graph.`);
+Options:
+  --taint          Export the taint graph (source -> sink) instead of the
+                   dependency graph.
+  --unified        Export the dependency graph with an inter-procedural taint
+                   overlay (vulnerable nodes in red, tainted calls in orange).
+  --out <file>     Write the Holon JSON document (default: stdout).
+  --html <file>    Also write a self-contained SVG preview of the graph.
+
+Statically analyses PHP sources and exports an AST-based graph in the Holon
+Architecture Modeler format.`);
 }
 
 function collectPhpFiles(target: string, acc: string[]): void {
@@ -54,6 +76,33 @@ function collectPhpFiles(target: string, acc: string[]): void {
     } else if (stat.isFile() && target.endsWith('.php')) {
         acc.push(target);
     }
+}
+
+function buildDependencyGraph(parser: Parser, files: string[]): HolonGraph {
+    const builder = new DependencyGraphBuilder();
+    for (const file of files) {
+        const source = fs.readFileSync(file);
+        builder.addFile(file, parser.parse(source.toString('utf-8')), source);
+    }
+    return exportDependencyGraph(builder.build(), new Date().toISOString());
+}
+
+function parseModules(parser: Parser, files: string[]): ModuleModel[] {
+    return files.map(file => {
+        const source = fs.readFileSync(file);
+        return new SyntaxTreeParser(source, parser.parse(source.toString('utf-8')), file).parseModule();
+    });
+}
+
+function buildTaintGraph(parser: Parser, files: string[]): HolonGraph {
+    const {flow} = new InterproceduralAnalyzer({sources: DEFAULT_SOURCES}).analyze(parseModules(parser, files));
+    return exportTaintGraph(flow, new Date().toISOString());
+}
+
+function buildUnifiedGraph(parser: Parser, files: string[]): HolonGraph {
+    const dependencyGraph = buildDependencyGraph(parser, files);
+    const {vulnerabilities, flow} = new InterproceduralAnalyzer({sources: DEFAULT_SOURCES}).analyze(parseModules(parser, files));
+    return exportUnifiedGraph(dependencyGraph, vulnerabilities, flow);
 }
 
 function main(): void {
@@ -80,15 +129,11 @@ function main(): void {
     const parser = new Parser();
     parser.setLanguage(treeSitterPhp.php);
 
-    const builder = new DependencyGraphBuilder();
-    for (const file of files) {
-        const source = fs.readFileSync(file);
-        const tree = parser.parse(source.toString('utf-8'));
-        builder.addFile(file, tree, source);
-    }
-
-    const model = builder.build();
-    const graph = exportDependencyGraph(model, new Date().toISOString());
+    const graph = options.kind === 'taint'
+        ? buildTaintGraph(parser, files)
+        : options.kind === 'unified'
+            ? buildUnifiedGraph(parser, files)
+            : buildDependencyGraph(parser, files);
     const json = JSON.stringify(graph, null, 2);
 
     if (options.html) {

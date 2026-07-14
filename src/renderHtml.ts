@@ -7,10 +7,42 @@ interface Point {
     y: number;
 }
 
-const EDGE_STYLE: Record<string, {color: string; dash: string}> = {
-    Triggering: {color: '#455a64', dash: ''},
-    Association: {color: '#7b1fa2', dash: '6 4'}
+interface EdgeStyle {
+    color: string;
+    dash: string;
+    marker: string;
+}
+
+const EDGE_STYLE: Record<string, EdgeStyle> = {
+    // Graphe de dépendances
+    Triggering: {color: '#455a64', dash: '', marker: 'arrow-455a64'},
+    Association: {color: '#7b1fa2', dash: '6 4', marker: 'arrow-7b1fa2'},
+    // Graphe de teinte
+    Flux: {color: '#f57c00', dash: '', marker: 'arrow-f57c00'},
+    'Désinfection': {color: '#2e7d32', dash: '4 3', marker: 'arrow-2e7d32'},
+    'Vulnérabilité': {color: '#c62828', dash: '', marker: 'arrow-c62828'},
+    Usage: {color: '#9e9e9e', dash: '2 3', marker: 'arrow-9e9e9e'}
 };
+
+const DEFAULT_EDGE_STYLE: EdgeStyle = EDGE_STYLE.Triggering;
+
+function edgeStyle(relationType: string): EdgeStyle {
+    return EDGE_STYLE[relationType] ?? DEFAULT_EDGE_STYLE;
+}
+
+/** Génère un `<marker>` de flèche par couleur d'arête réellement utilisée. */
+function renderMarkers(edgeTypes: Set<string>): string {
+    const colors = new Set<string>();
+    for (const type of edgeTypes) {
+        colors.add(edgeStyle(type).color);
+    }
+    return Array.from(colors).map(color => {
+        const id = `arrow-${color.replace('#', '')}`;
+        return `    <marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="${color}"/>
+    </marker>`;
+    }).join('\n');
+}
 
 /**
  * Produit un document HTML autonome (SVG inline, sans dépendance externe)
@@ -34,14 +66,19 @@ export function renderHolonGraphToHtml(graph: HolonGraph): string {
         .filter(Boolean)
         .join('\n');
 
-    const legend = renderLegend(graph.nodes);
+    const legend = renderLegend(graph);
+    const heading = graph.metadata.exportTool.includes('taint')
+        ? 'Graphe de teinte (source → sink) — Holon Architecture Modeler'
+        : graph.metadata.exportTool.includes('unified')
+            ? 'Graphe unifié (dépendances + teinte) — Holon Architecture Modeler'
+            : 'Graphe de dépendances — Holon Architecture Modeler';
 
     return `<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Graphe de dépendances — Holon</title>
+<title>${escapeXml(heading)}</title>
 <style>
   :root { color-scheme: light dark; }
   body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #fafafa; color: #212121; }
@@ -67,19 +104,14 @@ export function renderHolonGraphToHtml(graph: HolonGraph): string {
 </head>
 <body>
 <header>
-  <h1>Graphe de dépendances — Holon Architecture Modeler</h1>
+  <h1>${escapeXml(heading)}</h1>
   <div class="meta">${graph.metadata.nodeCount} nœuds · ${graph.metadata.edgeCount} arêtes · exporté le ${escapeXml(graph.exportedAt)} · ${escapeXml(graph.metadata.exportTool)}</div>
   <div class="legend">${legend}</div>
 </header>
 <div class="canvas">
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#455a64"/>
-    </marker>
-    <marker id="arrow-assoc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7b1fa2"/>
-    </marker>
+${renderMarkers(new Set(graph.edges.map(e => e.data.relationType)))}
   </defs>
   <g class="nodes">
 ${nodeSvg}
@@ -121,28 +153,31 @@ function renderEdge(edge: HolonEdge, byId: Map<string, HolonNode>, offsetX: numb
     const tc = center(target, offsetX, offsetY);
     const start = borderPoint(source, offsetX, offsetY, tc);
     const end = borderPoint(target, offsetX, offsetY, sc);
-    const style = EDGE_STYLE[edge.data.relationType] ?? EDGE_STYLE.Triggering;
-    const marker = edge.data.relationType === 'Association' ? 'arrow-assoc' : 'arrow';
+    const style = edgeStyle(edge.data.relationType);
     const mid = {x: (start.x + end.x) / 2, y: (start.y + end.y) / 2};
     const label = edge.data.name
         ? `    <text class="edge-label" x="${mid.x}" y="${mid.y - 3}" text-anchor="middle">${escapeXml(truncate(edge.data.name, 120))}</text>`
         : '';
     const dash = style.dash ? ` stroke-dasharray="${style.dash}"` : '';
-    return `    <line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="${style.color}" stroke-width="1.5" stroke-opacity="0.7"${dash} marker-end="url(#${marker})"/>
+    return `    <line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="${style.color}" stroke-width="1.5" stroke-opacity="0.75"${dash} marker-end="url(#${style.marker})"/>
 ${label}`;
 }
 
-function renderLegend(nodes: HolonNode[]): string {
+function renderLegend(graph: HolonGraph): string {
     const seen = new Map<string, string>();
-    for (const node of nodes) {
+    for (const node of graph.nodes) {
         if (!seen.has(node.data.archimateType)) {
             seen.set(node.data.archimateType, node.styling.fill);
         }
     }
     const items = Array.from(seen.entries())
         .map(([type, fill]) => `<span><i style="background:${fill}"></i>${escapeXml(type)}</span>`);
-    items.push('<span><i style="background:#455a64;border-radius:2px"></i>Triggering (appel)</span>');
-    items.push('<span><i style="background:#7b1fa2;border-radius:2px"></i>Association (new)</span>');
+
+    const edgeTypes = new Set(graph.edges.map(e => e.data.relationType));
+    for (const type of edgeTypes) {
+        const color = edgeStyle(type).color;
+        items.push(`<span><i style="background:${color};border-radius:2px"></i>${escapeXml(type)}</span>`);
+    }
     return items.join('');
 }
 

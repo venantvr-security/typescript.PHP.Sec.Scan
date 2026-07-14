@@ -6,6 +6,8 @@ export interface Vulnerability {
     file: string;
     trace: string;
     severity: 'error' | 'warning';
+    /** Portée (fonction/méthode/`<global>`) où la vulnérabilité est déclenchée. */
+    scope?: string;
 }
 
 export interface SinkRule {
@@ -24,29 +26,83 @@ export interface Rules {
 }
 
 export interface CodeEvent {
-    type: 'assignment' | 'function_call';
+    type: 'assignment' | 'function_call' | 'return';
     line: number;
     file: string;
-    details: AssignmentDetails | FunctionCallDetails;
+    details: AssignmentDetails | FunctionCallDetails | ReturnDetails;
+}
+
+/** Une fonction ou méthode définie, avec sa signature et le corps sous forme d'événements. */
+export interface FunctionInfo {
+    name: string;
+    /** Nom qualifié pour la résolution (`Classe::methode` ou nom de fonction). */
+    qualifiedName: string;
+    /** Noms des paramètres, dans l'ordre (`['$a', '$b']`). */
+    params: string[];
+    /** Événements du corps (affectations, appels, retours). */
+    events: CodeEvent[];
+    line: number;
+    file: string;
+    className: string | null;
+}
+
+/** Modèle structuré d'un fichier : événements de premier niveau + fonctions/méthodes. */
+export interface ModuleModel {
+    file: string;
+    topLevel: CodeEvent[];
+    functions: FunctionInfo[];
 }
 
 export interface AssignmentDetails {
     variable: string;
     source: string;
+    /** Si le membre droit est un simple appel `f(...)`, le nom de `f`. */
+    callee?: string;
+    /** Arguments positionnels de cet appel (pour la propagation de retour inter-procédurale). */
+    calleeArgs?: CallArgument[];
+}
+
+export interface ReturnDetails {
+    /** Variables présentes dans l'expression de retour. */
+    variables: string[];
+    /** Texte de l'expression de retour (pour détecter une désinfection). */
+    text: string;
+}
+
+export interface CallArgument {
+    /** Texte source complet de l'argument (ex. `mysqli_real_escape_string($id)`). */
+    text: string;
+    /** Noms des variables (`$x`) présentes dans l'argument, interpolations comprises. */
+    variables: string[];
 }
 
 export interface FunctionCallDetails {
     functionName: string;
+    /** Liste aplatie des variables de tous les arguments (rétro-compatibilité). */
     arguments: string[];
+    /** Détail par argument, permettant de détecter une désinfection intra-argument. */
+    argumentExpressions?: CallArgument[];
 }
+
+export type TaintOrigin = 'source' | 'propagation' | 'sanitized';
 
 export interface TaintFlowEntry {
     variable: string;
     source: string;
     line: number;
-    action: 'assignment' | 'function_parameter';
+    action: 'assignment' | 'function_parameter' | 'parameter_binding';
     details: string;
     file: string;
+    /** Portée (fonction) où se produit l'événement ; `<global>` au premier niveau. */
+    scope?: string;
+    /** Pour une affectation : comment la variable a obtenu (ou perdu) sa teinte. */
+    origin?: TaintOrigin;
+    /** Pour un paramètre de fonction : true si l'appel constitue une vulnérabilité. */
+    isVulnerable?: boolean;
+    /** Pour un paramètre de fonction vulnérable : catégorie de la vulnérabilité. */
+    vulnType?: string;
+    /** Pour une liaison de paramètre : portée de la fonction appelée. */
+    targetScope?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -52,29 +52,47 @@ flowchart TD
     PHP[Fichiers PHP] --> Parser[tree-sitter-php]
     Parser --> AST[AST]
 
-    AST --> STP[SyntaxTreeParser]
-    STP --> Taint[TaintAnalyzer<br/>sources / sinks / désinfectants]
+    AST --> STP[SyntaxTreeParser<br/>parse / parseModule]
+    STP --> Taint[TaintAnalyzer<br/>intra-procédural]
+    STP --> IPT[InterproceduralAnalyzer<br/>paramètres / retours / chaînes]
     Taint --> Vulns[Vulnérabilités]
+    IPT --> Vulns
+
+    IPT --> TG[exportTaintGraph<br/>source → sink]
+    TG --> Holon2[HolonGraph JSON]
 
     AST --> DGB[DependencyGraphBuilder]
     DGB --> Model[DependencyModel<br/>entités + dépendances]
     Model --> HE[HolonExporter]
     HE --> Graph[HolonGraph JSON]
+
+    Graph --> UNI[exportUnifiedGraph<br/>surcouche de teinte]
+    IPT --> UNI
+    UNI --> Holon3[HolonGraph JSON]
+
     Graph --> Render[renderHtml<br/>aperçu HTML/SVG]
+    Holon2 --> Render
+    Holon3 --> Render
 
     CLI[exportGraph.ts / php-dep-graph] --> DGB
+    CLI --> IPT
+    CLI --> UNI
 ```
 
 ### Fichiers clés (`src/`)
 
-- `syntaxTreeParser.ts` — extrait des événements (affectations, appels, sinks) de l'AST.
-- `taintTracker.ts` — suivi de teinte : sources → sinks, désinfection.
+- `syntaxTreeParser.ts` — extrait des événements (`parse`) et un modèle structuré (`parseModule`) de l'AST.
+- `taintRules.ts` — décisions source / sink / désinfectant partagées.
+- `taintTracker.ts` — suivi de teinte intra-procédural.
+- `interproceduralTaint.ts` — suivi de teinte inter-procédural (paramètres, retours, chaînes d'appel).
 - `defaultRules.ts` — sinks et désinfectants par défaut.
-- `dependencyGraph.ts` — construit le graphe (résolution des symboles inter-fichiers).
+- `dependencyGraph.ts` — construit le graphe de dépendances (symboles inter-fichiers).
 - `holonExporter.ts` — mise en page déterministe + export au format Holon.
-- `renderHtml.ts` — aperçu HTML/SVG autonome du graphe.
+- `taintGraph.ts` — graphe de teinte (source → sink) au format Holon.
+- `unifiedGraph.ts` — vue unifiée (dépendances + surcouche de teinte).
+- `renderHtml.ts` — aperçu HTML/SVG autonome (dépendances, teinte ou unifié).
 - `exportGraph.ts` — point d'entrée CLI (`php-dep-graph`).
-- `types.ts` — interfaces TypeScript (`Vulnerability`, `Rules`, `HolonGraph`, …).
+- `types.ts` — interfaces TypeScript (`Vulnerability`, `Rules`, `HolonGraph`, `ModuleModel`, …).
 
 ## Commandes
 

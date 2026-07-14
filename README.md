@@ -55,9 +55,28 @@ npm run export-graph -- ./chemin/vers/projet-php --out graphe.json
 # Générer aussi un aperçu HTML/SVG autonome (ouvrable dans un navigateur)
 npm run export-graph -- ./chemin/vers/projet-php --out graphe.json --html apercu.html
 
+# Exporter le graphe de TEINTE (source → sink) au lieu des dépendances
+npm run export-graph -- ./chemin/vers/projet-php --taint --html teinte.html
+
+# Exporter la vue UNIFIÉE (dépendances + surcouche de teinte)
+npm run export-graph -- ./chemin/vers/projet-php --unified --html unifie.html
+
 # Ou écrire sur stdout (JSON pur, pipeable)
 node out/src/exportGraph.js ./src/fichier.php
 ```
+
+Trois graphes sont disponibles, tous au format Holon et affichables via
+`--html` :
+
+- **Dépendances** (par défaut) : fichiers, classes, fonctions et méthodes,
+  reliés par les appels et instanciations.
+- **Teinte** (`--taint`) : le trajet des données depuis les **sources** vers
+  les **sinks**, avec code couleur — flux (orange), désinfection (vert),
+  vulnérabilité (rouge), usage anodin (gris). Le suivi est **inter-procédural**
+  (voir ci-dessous) : les arêtes traversent les appels de fonctions/méthodes.
+- **Unifié** (`--unified`) : la structure du graphe de dépendances enrichie
+  d'une surcouche de teinte — les fonctions où un sink est atteint sont en
+  **rouge**, les appels qui transportent une donnée teintée en **orange**.
 
 L'aperçu HTML (`--html`) est un fichier **autonome** (SVG inline, aucune
 ressource externe) : conteneurs imbriqués, couleurs par type ArchiMate,
@@ -72,7 +91,10 @@ jusqu'à un **sink** :
 - **Source** → **sink** sans désinfection ⇒ vulnérabilité (`severity: error`),
   typée selon le sink : `sql_injection`, `xss`, `rce`, `file_inclusion`.
 - Une donnée qui passe par un **désinfectant** (`htmlspecialchars`, `intval`,
-  `mysqli_real_escape_string`, cast `(int)`, …) redevient sûre.
+  `mysqli_real_escape_string`, cast `(int)`, …) redevient sûre. La désinfection
+  est détectée aussi bien lors d'une affectation (`$s = htmlspecialchars($x)`)
+  que **directement dans l'argument d'un sink**
+  (`mysqli_query(mysqli_real_escape_string($id))` n'est pas signalé).
 - Une source affectée à une variable produit aussi un avertissement
   `unsanitized_source` (`severity: warning`).
 
@@ -80,6 +102,23 @@ Sinks reconnus par défaut : appels de fonction (`mysqli_query`, `eval`,
 `system`, …) **et** constructions du langage (`echo`, `print`, `include`,
 `require`). Les listes sont configurables dans `rules.yaml` (`sinks`,
 `sanitizers`) ; à défaut, celles de `src/defaultRules.ts` s'appliquent.
+
+### Analyse inter-procédurale
+
+Le suivi traverse les appels de fonctions et méthodes définies dans le projet :
+
+- Un **argument teinté** teinte le **paramètre** correspondant de l'appelé (les
+  paramètres deviennent des relais). Un sink atteint à l'intérieur est signalé
+  avec la **chaîne d'appel** (ex. `chemin: <global> → controller → find → run`).
+- La **teinte du retour** se propage à l'appelant : `$x = f($teinté)` teinte
+  `$x` si `f` renvoie une valeur teintée, mais pas si `f` la désinfecte.
+- La récursion est bornée (garde de cycle) et les résumés de fonctions sont
+  mémoïsés.
+
+Limites connues : la résolution des méthodes se fait par nom (comme le graphe
+de dépendances) ; une désinfection par **fonction utilisateur** appliquée
+directement dans l'argument d'une construction (`echo maFonction($x)`) n'est pas
+reconnue — préférer une variable intermédiaire (`$s = maFonction($x); echo $s;`).
 
 ## Prérequis
 
@@ -195,16 +234,20 @@ Ou via VS Code :
 ### Structure du projet
 
 - `src/` : Code source.
-    - `syntaxTreeParser.ts` : Extraction d'événements (affectations, appels, sinks) depuis l'AST `tree-sitter`.
-    - `taintTracker.ts` : Suivi de teinte (sources, propagation, désinfection, sinks).
+    - `syntaxTreeParser.ts` : Extraction d'événements + analyse structurée (`parseModule`) depuis l'AST `tree-sitter`.
+    - `taintRules.ts` : Décisions élémentaires (source / sink / désinfectant) partagées.
+    - `taintTracker.ts` : Suivi de teinte intra-procédural.
+    - `interproceduralTaint.ts` : Suivi de teinte inter-procédural (paramètres, retours, chaînes d'appel).
     - `defaultRules.ts` : Sinks et désinfectants par défaut.
-    - `dependencyGraph.ts` : Construction du graphe de dépendances à partir de l'AST (résolution des symboles inter-fichiers).
-    - `holonExporter.ts` : Mise en page et export au format Holon Architecture Modeler.
-    - `renderHtml.ts` : Rendu d'un aperçu HTML/SVG autonome du graphe.
+    - `dependencyGraph.ts` : Construction du graphe de dépendances (résolution des symboles inter-fichiers).
+    - `holonExporter.ts` : Mise en page et export du graphe de dépendances au format Holon.
+    - `taintGraph.ts` : Export du graphe de teinte (source → sink) au format Holon.
+    - `unifiedGraph.ts` : Vue unifiée (dépendances + surcouche de teinte).
+    - `renderHtml.ts` : Rendu d'un aperçu HTML/SVG autonome (dépendances, teinte ou unifié).
     - `exportGraph.ts` : Point d'entrée CLI (`php-dep-graph`).
-    - `types.ts` : Interfaces TypeScript (ex. `Vulnerability`, `Rules`, `HolonGraph`).
+    - `types.ts` : Interfaces TypeScript (ex. `Vulnerability`, `Rules`, `HolonGraph`, `ModuleModel`).
     - `types/tree-sitter-php.d.ts` : Déclaration personnalisée pour `tree-sitter-php`.
-- `tests/` : Tests unitaires (`taintTracker.test.ts`, `dependencyGraph.test.ts`, `renderHtml.test.ts`).
+- `tests/` : Tests unitaires (`taintTracker`, `interproceduralTaint`, `dependencyGraph`, `taintGraph`, `unifiedGraph`, `renderHtml`).
 - `rules.yaml` : Règles par défaut pour l'analyse des vulnérabilités.
 - `tsconfig.json` : Configuration TypeScript.
 - `package.json` : Dépendances et scripts npm.
