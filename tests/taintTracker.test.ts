@@ -144,4 +144,17 @@ describe('TaintAnalyzer', () => {
         const vulns = analyze(`<?php $id = $_GET['id']; some_function($id);`);
         expect(vulns.some(v => v.severity === 'error')).to.be.false;
     });
+
+    it('ne signale pas de vulnérabilité si la donnée est désinfectée dans l\'argument du sink', () => {
+        const escaped = analyze(`<?php $id = $_GET['id']; mysqli_query(mysqli_real_escape_string($id));`);
+        expect(escaped.some(v => v.severity === 'error'), 'escape intra-argument').to.be.false;
+
+        const cast = analyze(`<?php $id = $_GET['id']; system(intval($id));`);
+        expect(cast.some(v => v.severity === 'error'), 'intval intra-argument').to.be.false;
+    });
+
+    it('signale toujours la vulnérabilité si l\'argument du sink n\'est pas désinfecté', () => {
+        const vulns = analyze(`<?php $id = $_GET['id']; mysqli_query($id);`);
+        expect(vulns.some(v => v.type === 'sql_injection' && v.severity === 'error')).to.be.true;
+    });
 });

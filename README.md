@@ -55,9 +55,21 @@ npm run export-graph -- ./chemin/vers/projet-php --out graphe.json
 # Générer aussi un aperçu HTML/SVG autonome (ouvrable dans un navigateur)
 npm run export-graph -- ./chemin/vers/projet-php --out graphe.json --html apercu.html
 
+# Exporter le graphe de TEINTE (source → sink) au lieu des dépendances
+npm run export-graph -- ./chemin/vers/projet-php --taint --html teinte.html
+
 # Ou écrire sur stdout (JSON pur, pipeable)
 node out/src/exportGraph.js ./src/fichier.php
 ```
+
+Deux graphes sont disponibles, tous deux au format Holon et affichables via
+`--html` :
+
+- **Dépendances** (par défaut) : fichiers, classes, fonctions et méthodes,
+  reliés par les appels et instanciations.
+- **Teinte** (`--taint`) : le trajet des données depuis les **sources** vers
+  les **sinks**, avec code couleur — flux (orange), désinfection (vert),
+  vulnérabilité (rouge), usage anodin (gris).
 
 L'aperçu HTML (`--html`) est un fichier **autonome** (SVG inline, aucune
 ressource externe) : conteneurs imbriqués, couleurs par type ArchiMate,
@@ -72,7 +84,10 @@ jusqu'à un **sink** :
 - **Source** → **sink** sans désinfection ⇒ vulnérabilité (`severity: error`),
   typée selon le sink : `sql_injection`, `xss`, `rce`, `file_inclusion`.
 - Une donnée qui passe par un **désinfectant** (`htmlspecialchars`, `intval`,
-  `mysqli_real_escape_string`, cast `(int)`, …) redevient sûre.
+  `mysqli_real_escape_string`, cast `(int)`, …) redevient sûre. La désinfection
+  est détectée aussi bien lors d'une affectation (`$s = htmlspecialchars($x)`)
+  que **directement dans l'argument d'un sink**
+  (`mysqli_query(mysqli_real_escape_string($id))` n'est pas signalé).
 - Une source affectée à une variable produit aussi un avertissement
   `unsanitized_source` (`severity: warning`).
 
@@ -199,12 +214,13 @@ Ou via VS Code :
     - `taintTracker.ts` : Suivi de teinte (sources, propagation, désinfection, sinks).
     - `defaultRules.ts` : Sinks et désinfectants par défaut.
     - `dependencyGraph.ts` : Construction du graphe de dépendances à partir de l'AST (résolution des symboles inter-fichiers).
-    - `holonExporter.ts` : Mise en page et export au format Holon Architecture Modeler.
-    - `renderHtml.ts` : Rendu d'un aperçu HTML/SVG autonome du graphe.
+    - `holonExporter.ts` : Mise en page et export du graphe de dépendances au format Holon.
+    - `taintGraph.ts` : Export du graphe de teinte (source → sink) au format Holon.
+    - `renderHtml.ts` : Rendu d'un aperçu HTML/SVG autonome (dépendances ou teinte).
     - `exportGraph.ts` : Point d'entrée CLI (`php-dep-graph`).
     - `types.ts` : Interfaces TypeScript (ex. `Vulnerability`, `Rules`, `HolonGraph`).
     - `types/tree-sitter-php.d.ts` : Déclaration personnalisée pour `tree-sitter-php`.
-- `tests/` : Tests unitaires (`taintTracker.test.ts`, `dependencyGraph.test.ts`, `renderHtml.test.ts`).
+- `tests/` : Tests unitaires (`taintTracker`, `dependencyGraph`, `taintGraph`, `renderHtml`).
 - `rules.yaml` : Règles par défaut pour l'analyse des vulnérabilités.
 - `tsconfig.json` : Configuration TypeScript.
 - `package.json` : Dépendances et scripts npm.

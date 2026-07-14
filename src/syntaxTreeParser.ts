@@ -1,4 +1,4 @@
-import {CodeEvent} from './types';
+import {CallArgument, CodeEvent} from './types';
 
 import {SyntaxNode, Tree} from "tree-sitter";
 
@@ -55,11 +55,13 @@ export class SyntaxTreeParser {
             const funcName = this.getFunctionName(node);
             const argsNode = node.childForFieldName('arguments');
             if (funcName && argsNode) {
-                this.pushCall(node, funcName, this.collectVariables(argsNode), events);
+                this.pushCall(node, funcName, this.argumentsOf(argsNode), events);
             }
         } else if (CONSTRUCT_SINKS[node.type]) {
-            // echo / print / include / require : variables utilisées directement.
-            this.pushCall(node, CONSTRUCT_SINKS[node.type], this.collectVariables(node), events);
+            // echo / print / include / require : l'ensemble de la construction est l'argument.
+            const text = this.getNodeText(node);
+            const variables = this.collectVariables(node);
+            this.pushCall(node, CONSTRUCT_SINKS[node.type], [{text, variables}], events);
         }
 
         for (const child of node.children) {
@@ -67,16 +69,34 @@ export class SyntaxTreeParser {
         }
     }
 
-    private pushCall(node: SyntaxNode, functionName: string, args: string[], events: CodeEvent[]): void {
-        if (args.length === 0) {
+    private pushCall(node: SyntaxNode, functionName: string, argumentExpressions: CallArgument[], events: CodeEvent[]): void {
+        const flat: string[] = [];
+        const seen = new Set<string>();
+        for (const arg of argumentExpressions) {
+            for (const variable of arg.variables) {
+                if (!seen.has(variable)) {
+                    seen.add(variable);
+                    flat.push(variable);
+                }
+            }
+        }
+        if (flat.length === 0) {
             return;
         }
         events.push({
             type: 'function_call',
             line: node.startPosition.row + 1,
             file: this.filePath,
-            details: {functionName, arguments: args}
+            details: {functionName, arguments: flat, argumentExpressions}
         });
+    }
+
+    /** Décompose un nœud `arguments` en une liste d'arguments (texte + variables). */
+    private argumentsOf(argsNode: SyntaxNode): CallArgument[] {
+        return argsNode.namedChildren.map(arg => ({
+            text: this.getNodeText(arg),
+            variables: this.collectVariables(arg)
+        }));
     }
 
     /** Collecte, sans doublon, les noms de variables (`$x`) apparaissant sous un nœud, interpolations comprises. */

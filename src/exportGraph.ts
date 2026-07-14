@@ -6,24 +6,34 @@ import treeSitterPhp = require('tree-sitter-php');
 
 import {DependencyGraphBuilder} from './dependencyGraph';
 import {exportDependencyGraph} from './holonExporter';
+import {SyntaxTreeParser} from './syntaxTreeParser';
+import {TaintAnalyzer} from './taintTracker';
+import {exportTaintGraph} from './taintGraph';
 import {renderHolonGraphToHtml} from './renderHtml';
+import {HolonGraph, Rules, TaintFlowEntry} from './types';
+
+const DEFAULT_SOURCES = ['$_GET', '$_POST', '$_COOKIE', '$_REQUEST', '$_FILES'];
 
 interface CliOptions {
     inputs: string[];
     out: string | null;
     html: string | null;
+    taint: boolean;
 }
 
 function parseArgs(argv: string[]): CliOptions {
     const inputs: string[] = [];
     let out: string | null = null;
     let html: string | null = null;
+    let taint = false;
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         if (arg === '--out' || arg === '-o') {
             out = argv[++i] ?? null;
         } else if (arg === '--html') {
             html = argv[++i] ?? null;
+        } else if (arg === '--taint') {
+            taint = true;
         } else if (arg === '--help' || arg === '-h') {
             printUsage();
             process.exit(0);
@@ -31,15 +41,20 @@ function parseArgs(argv: string[]): CliOptions {
             inputs.push(arg);
         }
     }
-    return {inputs, out, html};
+    return {inputs, out, html, taint};
 }
 
 function printUsage(): void {
-    console.error(`Usage: export-graph <file-or-dir> [more paths...] [--out graph.json] [--html preview.html]
+    console.error(`Usage: export-graph <file-or-dir> [more paths...] [options]
 
-Statically analyses PHP sources and exports an AST dependency graph in the
-Holon Architecture Modeler format. Without --out, the JSON is written to stdout.
-Use --html to also write a self-contained SVG preview of the graph.`);
+Options:
+  --taint          Export the taint graph (source -> sink) instead of the
+                   dependency graph.
+  --out <file>     Write the Holon JSON document (default: stdout).
+  --html <file>    Also write a self-contained SVG preview of the graph.
+
+Statically analyses PHP sources and exports an AST-based graph in the Holon
+Architecture Modeler format.`);
 }
 
 function collectPhpFiles(target: string, acc: string[]): void {
@@ -54,6 +69,29 @@ function collectPhpFiles(target: string, acc: string[]): void {
     } else if (stat.isFile() && target.endsWith('.php')) {
         acc.push(target);
     }
+}
+
+function buildDependencyGraph(parser: Parser, files: string[]): HolonGraph {
+    const builder = new DependencyGraphBuilder();
+    for (const file of files) {
+        const source = fs.readFileSync(file);
+        builder.addFile(file, parser.parse(source.toString('utf-8')), source);
+    }
+    return exportDependencyGraph(builder.build(), new Date().toISOString());
+}
+
+function buildTaintGraph(parser: Parser, files: string[]): HolonGraph {
+    const rules: Rules = {sources: DEFAULT_SOURCES};
+    const flow: TaintFlowEntry[] = [];
+    for (const file of files) {
+        const source = fs.readFileSync(file);
+        const tree = parser.parse(source.toString('utf-8'));
+        const events = new SyntaxTreeParser(source, tree, file).parse();
+        const analyzer = new TaintAnalyzer(rules, file);
+        analyzer.analyze(events);
+        flow.push(...analyzer.getTaintFlow());
+    }
+    return exportTaintGraph(flow, new Date().toISOString());
 }
 
 function main(): void {
@@ -80,15 +118,7 @@ function main(): void {
     const parser = new Parser();
     parser.setLanguage(treeSitterPhp.php);
 
-    const builder = new DependencyGraphBuilder();
-    for (const file of files) {
-        const source = fs.readFileSync(file);
-        const tree = parser.parse(source.toString('utf-8'));
-        builder.addFile(file, tree, source);
-    }
-
-    const model = builder.build();
-    const graph = exportDependencyGraph(model, new Date().toISOString());
+    const graph = options.taint ? buildTaintGraph(parser, files) : buildDependencyGraph(parser, files);
     const json = JSON.stringify(graph, null, 2);
 
     if (options.html) {

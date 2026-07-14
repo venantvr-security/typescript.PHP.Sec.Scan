@@ -1,4 +1,4 @@
-import {AssignmentDetails, CodeEvent, FunctionCallDetails, Rules, TaintFlowEntry, Vulnerability} from './types';
+import {AssignmentDetails, CallArgument, CodeEvent, FunctionCallDetails, Rules, TaintFlowEntry, Vulnerability} from './types';
 import {DEFAULT_SANITIZERS, DEFAULT_SINKS} from './defaultRules';
 
 export class TaintAnalyzer {
@@ -43,7 +43,8 @@ export class TaintAnalyzer {
                 variable, source, line,
                 action: 'assignment',
                 details: `Désinfecté via ${source}`,
-                file: this.filePath
+                file: this.filePath,
+                origin: 'sanitized'
             });
             return;
         }
@@ -54,7 +55,8 @@ export class TaintAnalyzer {
                 variable, source, line,
                 action: 'assignment',
                 details: `Assigné depuis la source ${source}`,
-                file: this.filePath
+                file: this.filePath,
+                origin: 'source'
             });
             this.reportUnsanitizedSource(variable, line, `Source non désinfectée: ${variable}`);
             return;
@@ -66,7 +68,8 @@ export class TaintAnalyzer {
                 variable, source, line,
                 action: 'assignment',
                 details: `Propagé depuis une variable teintée (${source})`,
-                file: this.filePath
+                file: this.filePath,
+                origin: 'propagation'
             });
             this.reportUnsanitizedSource(variable, line, `Propagation de source non désinfectée: ${variable}`);
             return;
@@ -77,25 +80,34 @@ export class TaintAnalyzer {
     }
 
     private handleCall(line: number, details: FunctionCallDetails): void {
-        const {functionName, arguments: args} = details;
+        const {functionName, arguments: args, argumentExpressions} = details;
         const sinkType = this.sinkType(functionName);
+
+        // Chaque variable teintée est-elle désinfectée *dans son propre argument* ?
+        // Ex. `mysqli_query(mysqli_real_escape_string($id))` : $id est protégé.
+        const sanitizedInArg = this.sanitizedVariables(argumentExpressions);
 
         for (const arg of args) {
             if (!this.taintedVars.has(arg)) {
                 continue;
             }
+            const neutralised = sanitizedInArg.has(arg);
+            const vulnerable = Boolean(sinkType) && !neutralised;
+
             this.taintFlow.push({
                 variable: arg,
                 source: arg,
                 line,
                 action: 'function_parameter',
                 details: functionName,
-                file: this.filePath
+                file: this.filePath,
+                isVulnerable: vulnerable,
+                vulnType: vulnerable ? sinkType! : undefined
             });
 
-            if (sinkType) {
+            if (vulnerable) {
                 this.vulnerabilities.push({
-                    type: sinkType,
+                    type: sinkType!,
                     sink: functionName,
                     variable: arg,
                     line,
@@ -105,6 +117,22 @@ export class TaintAnalyzer {
                 });
             }
         }
+    }
+
+    /** Variables teintées neutralisées par un désinfectant à l'intérieur de leur propre argument. */
+    private sanitizedVariables(argumentExpressions?: CallArgument[]): Set<string> {
+        const sanitized = new Set<string>();
+        if (!argumentExpressions) {
+            return sanitized;
+        }
+        for (const arg of argumentExpressions) {
+            if (this.isSanitizedExpression(arg.text)) {
+                for (const variable of arg.variables) {
+                    sanitized.add(variable);
+                }
+            }
+        }
+        return sanitized;
     }
 
     private reportUnsanitizedSource(variable: string, line: number, trace: string): void {
@@ -117,6 +145,11 @@ export class TaintAnalyzer {
             trace,
             severity: 'warning'
         });
+    }
+
+    /** Le journal de flux de teinte de la dernière analyse (affectations, propagations, sinks). */
+    getTaintFlow(): TaintFlowEntry[] {
+        return this.taintFlow;
     }
 
     printTaintFlow(): string {

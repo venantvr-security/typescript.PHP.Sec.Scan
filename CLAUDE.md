@@ -56,13 +56,19 @@ flowchart TD
     STP --> Taint[TaintAnalyzer<br/>sources / sinks / désinfectants]
     Taint --> Vulns[Vulnérabilités]
 
+    Taint --> TG[exportTaintGraph<br/>source → sink]
+    TG --> Holon2[HolonGraph JSON]
+
     AST --> DGB[DependencyGraphBuilder]
     DGB --> Model[DependencyModel<br/>entités + dépendances]
     Model --> HE[HolonExporter]
     HE --> Graph[HolonGraph JSON]
+
     Graph --> Render[renderHtml<br/>aperçu HTML/SVG]
+    Holon2 --> Render
 
     CLI[exportGraph.ts / php-dep-graph] --> DGB
+    CLI --> Taint
 ```
 
 ### Fichiers clés (`src/`)
@@ -70,9 +76,10 @@ flowchart TD
 - `syntaxTreeParser.ts` — extrait des événements (affectations, appels, sinks) de l'AST.
 - `taintTracker.ts` — suivi de teinte : sources → sinks, désinfection.
 - `defaultRules.ts` — sinks et désinfectants par défaut.
-- `dependencyGraph.ts` — construit le graphe (résolution des symboles inter-fichiers).
+- `dependencyGraph.ts` — construit le graphe de dépendances (symboles inter-fichiers).
 - `holonExporter.ts` — mise en page déterministe + export au format Holon.
-- `renderHtml.ts` — aperçu HTML/SVG autonome du graphe.
+- `taintGraph.ts` — graphe de teinte (source → sink) au format Holon.
+- `renderHtml.ts` — aperçu HTML/SVG autonome (dépendances ou teinte).
 - `exportGraph.ts` — point d'entrée CLI (`php-dep-graph`).
 - `types.ts` — interfaces TypeScript (`Vulnerability`, `Rules`, `HolonGraph`, …).
 

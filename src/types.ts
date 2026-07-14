@@ -35,10 +35,22 @@ export interface AssignmentDetails {
     source: string;
 }
 
+export interface CallArgument {
+    /** Texte source complet de l'argument (ex. `mysqli_real_escape_string($id)`). */
+    text: string;
+    /** Noms des variables (`$x`) présentes dans l'argument, interpolations comprises. */
+    variables: string[];
+}
+
 export interface FunctionCallDetails {
     functionName: string;
+    /** Liste aplatie des variables de tous les arguments (rétro-compatibilité). */
     arguments: string[];
+    /** Détail par argument, permettant de détecter une désinfection intra-argument. */
+    argumentExpressions?: CallArgument[];
 }
+
+export type TaintOrigin = 'source' | 'propagation' | 'sanitized';
 
 export interface TaintFlowEntry {
     variable: string;
@@ -47,6 +59,12 @@ export interface TaintFlowEntry {
     action: 'assignment' | 'function_parameter';
     details: string;
     file: string;
+    /** Pour une affectation : comment la variable a obtenu (ou perdu) sa teinte. */
+    origin?: TaintOrigin;
+    /** Pour un paramètre de fonction : true si l'appel constitue une vulnérabilité. */
+    isVulnerable?: boolean;
+    /** Pour un paramètre de fonction vulnérable : catégorie de la vulnérabilité. */
+    vulnType?: string;
 }
 
 // ---------------------------------------------------------------------------
