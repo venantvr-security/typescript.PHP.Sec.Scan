@@ -83,8 +83,11 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "mocha -r ts-node/register tests/**/*.test.ts --colors",
-    "test:watch": "mocha -r ts-node/register tests/**/*.test.ts --watch --colors"
+    "test": "npm run compile && mocha \"out/tests/**/*.test.js\" --colors",
+    "export-graph": "npm run compile && node out/src/exportGraph.js"
+  },
+  "bin": {
+    "php-dep-graph": "./out/src/exportGraph.js"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",

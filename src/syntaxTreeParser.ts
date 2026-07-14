@@ -1,7 +1,6 @@
 import {CodeEvent} from './types';
 
 import {SyntaxNode, Tree} from "tree-sitter";
-import util from "util";
 
 export class SyntaxTreeParser {
     constructor(
@@ -13,23 +12,8 @@ export class SyntaxTreeParser {
 
     parse(): CodeEvent[] {
         const events: CodeEvent[] = [];
-        console.log('Parsing root node children:', util.inspect(this.inspectNodes(this.tree.rootNode.children), {depth: null, colors: true}));
         this.traverseNode(this.tree.rootNode, events);
         return events;
-    }
-
-    private inspectNodes(nodes: SyntaxNode[]): any[] {
-        return nodes.map(node => {
-            const isFunctionCall = node.type === 'function_call_expression';
-            const functionName = isFunctionCall ? this.getFunctionName(node) : null;
-            const children = node.namedChildren.length > 0 ? this.inspectNodes(node.namedChildren) : [];
-            return {
-                type: node.type,
-                text: this.getNodeText(node),
-                function: functionName,
-                children: children.length > 0 ? children : undefined
-            };
-        });
     }
 
     private getNodeText(node: SyntaxNode | null): string {
@@ -48,7 +32,6 @@ export class SyntaxTreeParser {
             const right = node.childForFieldName('right');
             if (left?.type === 'variable_name' && right) {
                 const varName = this.getNodeText(left);
-                console.log(`Assignment: ${varName} = ${this.getNodeText(right)}`);
                 events.push({
                     type: 'assignment',
                     line: node.startPosition.row + 1,
@@ -71,7 +54,6 @@ export class SyntaxTreeParser {
                         if (variableNode && variableNode.type === 'variable_name') {
                             const argName = this.getNodeText(variableNode);
                             argNames.push(argName);
-                            console.log(`Found argument in function call: ${argName}`);
                         }
                         const encapsedString = arg.namedChildren.find(c => c.type === 'encapsed_string');
                         if (encapsedString) {
@@ -79,7 +61,6 @@ export class SyntaxTreeParser {
                                 if (child.type === 'variable_name') {
                                     const argName = this.getNodeText(child);
                                     argNames.push(argName);
-                                    console.log(`Found interpolated variable in function call: ${argName}`);
                                 }
                             }
                         }

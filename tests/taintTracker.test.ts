@@ -16,7 +16,7 @@ const parser = new Parser();
 parser.setLanguage(treeSitterPhp.php);
 
 describe('TaintAnalyzer', () => {
-    /* it('devrait détecter une source non désinfectée', () => {
+    it('devrait détecter une source non désinfectée', () => {
         const code = `
             <?php
             $id = $_GET['id'];
@@ -77,7 +77,7 @@ describe('TaintAnalyzer', () => {
         expect(taintFlow).to.include("Variable '$tmp' assigned from source '$_GET['id']'");
         expect(taintFlow).to.include("Variable '$id' assigned from source '$tmp'")
         expect(taintFlow).to.include("Variable '$id' passed as parameter to function 'some_function'");
-    }); */
+    });
 
     it('devrait détecter une variable tainted passée à une fonction après 2 affectations et un appel de méthode', () => {
         const code = `

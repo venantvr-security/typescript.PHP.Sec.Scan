@@ -19,10 +19,8 @@ export class TaintAnalyzer {
         for (const event of events) {
             if (event.type === 'assignment') {
                 const {variable, source} = event.details as AssignmentDetails;
-                console.log(`Analyzing assignment: ${variable} = ${source}`);
                 if (this.isSource(source)) {
                     this.taintedVars.add(variable);
-                    console.log(`Adding unsanitized_source for: ${variable}`);
                     this.taintFlow.push({
                         variable,
                         source,
@@ -44,7 +42,6 @@ export class TaintAnalyzer {
                     }
                 } else if (this.taintedVars.has(source)) {
                     this.taintedVars.add(variable);
-                    console.log(`Adding unsanitized_source (propagation) for: ${variable}`);
                     this.taintFlow.push({
                         variable,
                         source,
@@ -69,7 +66,6 @@ export class TaintAnalyzer {
                 const {functionName, arguments: args} = event.details as FunctionCallDetails;
                 for (const arg of args) {
                     if (this.taintedVars.has(arg)) {
-                        console.log(`Tracking tainted variable in function call: ${arg}`);
                         this.taintFlow.push({
                             variable: arg,
                             source: arg,
@@ -108,7 +104,6 @@ export class TaintAnalyzer {
     }
 
     private isSource(text: string): boolean {
-        console.log(`Checking if source: ${text}`);
         // Un accès à une superglobale peut être direct (`$_POST`) ou indexé
         // (`$_POST['id']`, `$_GET["x"]['y']`). On considère la source détectée
         // dès que le texte correspond exactement à une source configurée ou
